@@ -1,0 +1,204 @@
+---
+title: "Color Measurements Analysis Report"
+author: "Group 9"
+date: "2024-06-15"
+encoding: utf8
+output:
+  bookdown::html_document2:
+    toc: true
+    toc_float: yes
+    code_folding: hide
+  bookdown::pdf_document2:
+    toc: false
+    keep_tex: true
+---
+
+```{r setup, include=FALSE}
+params <- list(html=knitr::is_html_output())
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+## Introduction
+
+This report analyzes the color measurements from printed Douglas color cards, which are used to determine customer skin color via an app. The objective is to assess the accuracy and consistency of these colors relative to intended values using various visualizations. We aim to gain insights into the color reproduction quality and identify areas for improvement. The analysis involves calculating color differences and visualizing these differences to understand the behavior of the printed colors.
+
+## Data Preparation
+
+The analysis uses two datasets:
+
+- `LabMeasurements-Color-Card.csv`: Actual color measurements.
+
+- `MasterColorCard.csv`: Intended color values.
+
+Both datasets are cleaned and transformed to facilitate the analysis.
+
+```{r}
+# Load necessary libraries
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(GGally)
+library(reshape2)
+library(scatterplot3d)
+library(bookdown)
+library(plotly)
+
+
+lab_measurements <- read.csv("LabMeasurements-Color-Card.csv", sep = ";", dec = ",")
+master_color <- read.csv("MasterColorCard.csv", sep = ";", dec = ",")
+
+# Transform lab_measurements to a long format
+lab_measurements <- lab_measurements %>%
+  pivot_longer(cols = -c(Row, Column),
+               names_to = c(".value", "spot"),
+               names_pattern = "([Lab])([0-9]{2})") %>%
+  mutate(spot = as.integer(spot))
+
+# Add the spot to the master_color dataset
+master_color <- master_color %>%
+  mutate(spot = Crow * 10 + Ccol)
+
+
+
+```
+
+
+### Calculate ΔE Values
+
+They represent the color differences between measured and intended values and are crucial for assessing the accuracy of color reproduction.
+
+```{r}
+
+# Join datasets on spot field
+combined_data <- lab_measurements %>%
+  inner_join(master_color, by = "spot", suffix = c("_measured", "_intended"))
+
+# Calculate ΔE values
+combined_data <- combined_data %>%
+  mutate(delta_E = sqrt((L_measured - L_intended)^2 + 
+                        (a_measured - a_intended)^2 + 
+                        (b_measured - b_intended)^2))
+
+```
+
+
+## Visualization of Results
+
+### Scatter Plots of Measured vs. Intended Values:
+
+- **L Values:** The scatter plot of L (lightness) values shows how closely the measured lightness matches the intended lightness. Ideally, points should align along the diagonal line 𝑦=𝑥. Deviations from this line indicate discrepancies in the reproduction of lightness.
+While many points align well with the diagonal, there are noticeable clusters of points that deviate, especially at higher L values. This suggests inconsistencies in achieving the correct lightness for certain shades.
+
+
+```{r}
+
+# Scatter plot of L values
+ggplot(combined_data, aes(x = L_intended, y = L_measured)) +
+  geom_point() +
+  labs(title = "Measured vs. Intended L Values",
+       x = "Intended L",
+       y = "Measured L")
+
+```
+
+- **a and b Values:** Similar interpretations apply to the a and b values, which represent the color-opponent dimensions. Points should align along the diagonal if the color reproduction is accurate.
+The scatter plots for a and b values also show good alignment for many points, but significant deviations exist. These deviations can be seen at both ends of the a and b scales, indicating that certain colors are more challenging to reproduce accurately.
+
+```{r}
+# Scatter plot of a values
+ggplot(combined_data, aes(x = a_intended, y = a_measured)) +
+  geom_point() +
+  labs(title = "Measured vs. Intended a Values",
+       x = "Intended a",
+       y = "Measured a")
+
+# Scatter plot of b values
+ggplot(combined_data, aes(x = b_intended, y = b_measured)) +
+  geom_point() +
+  labs(title = "Measured vs. Intended b Values",
+       x = "Intended b",
+       y = "Measured b")
+
+
+```
+
+### Histogram of ΔE Values:
+
+The histogram provides an overview of the color accuracy. A peak near lower ΔE values indicates good color reproduction, while a spread toward higher values suggests inconsistencies.
+It shows a high frequency of low ΔE values, indicating that most colors are reproduced accurately. However, there is a long tail of higher ΔE values, suggesting that there are outliers with significant color discrepancies.
+
+```{r}
+
+# Histogram of ΔE values
+ggplot(combined_data, aes(x = delta_E)) +
+  geom_histogram(binwidth = 0.5) +
+  labs(title = "Distribution of ΔE Values",
+       x = "ΔE",
+       y = "Frequency")
+
+
+
+```
+
+### 3D Plot of Lab Values:
+
+This plot visualizes the Lab color space and highlights the distribution of measured colors. The color gradient shows ΔE values, with deviations indicating areas of significant color difference.
+
+```{r}
+
+# 3D Plot of Lab values
+plot_ly(combined_data, x = ~L_measured, y = ~a_measured, z = ~b_measured, 
+        type = 'scatter3d', mode = 'markers', color = ~delta_E) %>%
+  layout(title = "3D Plot of Measured Lab Values")
+
+
+```
+
+## Differential Behavior Analysis
+
+- **Target Row:** The boxplot by target row shows if certain rows have consistently higher or lower ΔE values, indicating potential issues in the printing process.The boxplot reveals that some rows have a higher median ΔE value, indicating systemic issues affecting these rows. 
+
+- **Target Column:** Similarly, the boxplot by target column can reveal if specific columns are more prone to color inaccuracies. The variation in ΔE values across columns suggests that certain columns consistently experience higher color reproduction errors. 
+
+```{r}
+
+# Boxplot of ΔE values by target row and column
+ggplot(combined_data, aes(x = factor(Row), y = delta_E)) +
+  geom_boxplot() +
+  labs(title = "ΔE Values by Target Row",
+       x = "Row",
+       y = "ΔE")
+
+ggplot(combined_data, aes(x = factor(Column), y = delta_E)) +
+  geom_boxplot() +
+  labs(title = "ΔE Values by Target Column",
+       x = "Column",
+       y = "ΔE")
+
+```
+
+This boxplot helps to identify individual color spots that consistently show higher ΔE values, indicating spots where color reproduction may need adjustment. It shows that certain color spots have higher variability and median ΔE values, suggesting that these spots are particularly challenging to reproduce accurately. 
+
+```{r}
+
+# Boxplot of ΔE values by color spot
+ggplot(combined_data, aes(x = factor(spot), y = delta_E)) +
+  geom_boxplot() +
+  labs(title = "ΔE Values by Color Spot",
+       x = "Color Spot",
+       y = "ΔE")
+
+
+```
+
+
+## Conclusion
+
+This comprehensive analysis of the Douglas color cards revealed critical insights into the color reproduction process, highlighting both strengths and areas needing improvement. Our visualizations demonstrated significant deviations in measured versus intended Lab values, especially in lightness (L) and the a and b color dimensions, with notable outliers affecting overall color accuracy. The distribution of ΔE values confirmed that while most colors are reproduced faithfully, specific outliers require attention. The 3D plot and boxplots highlighted particular rows, columns, and color spots where discrepancies are most pronounced, suggesting the need for targeted monitoring. Through this analysis, we learned the benefits of a granular approach to identify and mitigate color discrepancies. This analysis underscores the need for robust quality control measures to ensure consistent and accurate color reproduction, ultimately enhancing the reliability of the Douglas color cards in practical applications.
+
+
